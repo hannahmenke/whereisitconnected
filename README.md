@@ -83,6 +83,8 @@ python isitconnected.py <filename> <depth> <height> <width> [options]
 - `--no-plot`: Skip plotting the slices (useful for batch processing)
 - `--bounding-boxes`: Calculate and display bounding boxes for each component
 - `--sort-by`: Sort components by `volume`, `depth`, `height`, or `width` (default: volume)
+- `--top-n`: Number of top components to display (default: 10, use 0 for all)
+- `-o, --output`: Output file for results (default: stdout)
 - `-h, --help`: Show help message
 
 **Examples:**

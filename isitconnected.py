@@ -316,6 +316,7 @@ Examples:
   python isitconnected.py image.raw 500 351 351 --backend cc3d   # Fast CPU
   python isitconnected.py image.raw 500 351 351 --backend cupy   # NVIDIA GPU
   python isitconnected.py image.raw 500 351 351 --backend mps    # Apple Silicon GPU
+  python isitconnected.py image.raw 500 351 351 --bounding-boxes -o results.txt  # Save to file
         """
     )
 
@@ -338,6 +339,8 @@ Examples:
                         help='Sort components by: volume (voxel count), depth (extent along depth axis), height, or width (default: volume)')
     parser.add_argument('--top-n', type=int, default=10,
                         help='Number of top components to display when using --bounding-boxes (default: 10, use 0 for all)')
+    parser.add_argument('--output', '-o', type=str, default=None,
+                        help='Output file for results (default: print to stdout). If specified, results are written to this file.')
     # Determine default backend based on what's available
     default_backend = 'cc3d' if CC3D_AVAILABLE else 'scipy'
 
@@ -374,11 +377,21 @@ Examples:
     # Define the dimensions from command-line arguments
     dims = (args.depth, args.height, args.width)
 
-    print("Loading file: {}".format(args.filename))
-    print("Dimensions: {} (depth x height x width)".format(dims))
-    print("Analyzing phase: {}".format(args.phase))
-    print("Backend: {}".format(args.backend))
-    print()
+    # Open output file if specified, otherwise use stdout
+    if args.output:
+        output_file = open(args.output, 'w')
+        def output(msg):
+            print(msg)  # Still print to console
+            output_file.write(msg + '\n')
+    else:
+        def output(msg):
+            print(msg)
+
+    output("Loading file: {}".format(args.filename))
+    output("Dimensions: {} (depth x height x width)".format(dims))
+    output("Analyzing phase: {}".format(args.phase))
+    output("Backend: {}".format(args.backend))
+    output("")
 
     # Load the 3D image with auto-detected header length
     volume = load_raw_3d(args.filename, dims)
@@ -388,25 +401,25 @@ Examples:
         plot_slices(volume)
 
     # Check connectivity for the specified phase
-    print("Running connected component labeling with {} backend...".format(args.backend))
+    output("Running connected component labeling with {} backend...".format(args.backend))
     import time
     start_time = time.time()
     labeled, num_features, connectivity = check_phase_connectivity(volume, phase=args.phase, backend=args.backend)
     elapsed_time = time.time() - start_time
-    print("Labeling completed in {:.2f} seconds".format(elapsed_time))
+    output("Labeling completed in {:.2f} seconds".format(elapsed_time))
 
-    print("\nTotal connected components for phase {}: {}".format(args.phase, num_features))
+    output("\nTotal connected components for phase {}: {}".format(args.phase, num_features))
     for axis, (is_conn, labels) in connectivity.items():
         if is_conn:
-            print("Phase {} is connected along {} (common component labels: {})".format(args.phase, axis, labels))
+            output("Phase {} is connected along {} (common component labels: {})".format(args.phase, axis, labels))
         else:
-            print("Phase {} is NOT connected along {}".format(args.phase, axis))
+            output("Phase {} is NOT connected along {}".format(args.phase, axis))
 
     # Calculate and display bounding boxes if requested
     if args.bounding_boxes:
-        print("\n" + "="*80)
-        print("BOUNDING BOXES FOR PHASE {} COMPONENTS".format(args.phase))
-        print("="*80)
+        output("\n" + "="*80)
+        output("BOUNDING BOXES FOR PHASE {} COMPONENTS".format(args.phase))
+        output("="*80)
 
         components = get_component_bounding_boxes(labeled, num_features)
 
@@ -423,21 +436,26 @@ Examples:
         # Limit to top N components if specified
         if args.top_n > 0:
             components_to_display = components_sorted[:args.top_n]
-            print("Sorted by: {} (descending)".format(args.sort_by))
-            print("Showing top {} of {} components\n".format(min(args.top_n, len(components_sorted)), len(components_sorted)))
+            output("Sorted by: {} (descending)".format(args.sort_by))
+            output("Showing top {} of {} components\n".format(min(args.top_n, len(components_sorted)), len(components_sorted)))
         else:
             components_to_display = components_sorted
-            print("Sorted by: {} (descending)".format(args.sort_by))
-            print("Showing all {} components\n".format(len(components_sorted)))
+            output("Sorted by: {} (descending)".format(args.sort_by))
+            output("Showing all {} components\n".format(len(components_sorted)))
 
         for i, comp in enumerate(components_to_display, 1):
-            print("Component #{} (Label: {})".format(i, comp['label']))
-            print("  Bounding Box:")
-            print("    Depth:  [{:5d} - {:5d}]  (extent: {:5d})".format(
+            output("Component #{} (Label: {})".format(i, comp['label']))
+            output("  Bounding Box:")
+            output("    Depth:  [{:5d} - {:5d}]  (extent: {:5d})".format(
                 comp['bbox'][0], comp['bbox'][1], comp['extent_depth']))
-            print("    Height: [{:5d} - {:5d}]  (extent: {:5d})".format(
+            output("    Height: [{:5d} - {:5d}]  (extent: {:5d})".format(
                 comp['bbox'][2], comp['bbox'][3], comp['extent_height']))
-            print("    Width:  [{:5d} - {:5d}]  (extent: {:5d})".format(
+            output("    Width:  [{:5d} - {:5d}]  (extent: {:5d})".format(
                 comp['bbox'][4], comp['bbox'][5], comp['extent_width']))
-            print("  Volume: {:,} voxels".format(comp['volume']))
-            print()
+            output("  Volume: {:,} voxels".format(comp['volume']))
+            output("")
+
+    # Close output file if it was opened
+    if args.output:
+        output_file.close()
+        print("\nResults written to: {}".format(args.output))

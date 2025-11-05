@@ -1,6 +1,10 @@
 # Raw data files
 *.raw
 
+# Output files
+results*.txt
+*.out
+
 # Python cache
 __pycache__/
 *.py[cod]
