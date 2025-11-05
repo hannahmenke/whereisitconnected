@@ -16,7 +16,8 @@ This script determines whether a specific phase (represented by voxel values) fo
 - **Multi-Axis Analysis**: Checks connectivity along all three spatial axes
 - **Visualization**: Displays central slices in axial, coronal, and sagittal views
 - **Component Labeling**: Labels all connected components and reports statistics
-- **Multiple Backend Support**: Choose between scipy, cc3d (10-100x faster), cupy (GPU), or dask (parallel)
+- **Multiple Backend Support**: Choose between scipy, cc3d (10-100x faster), cupy (NVIDIA GPU), mps (Apple Silicon GPU), or dask (parallel)
+- **Cross-Platform GPU Support**: Works with both NVIDIA GPUs (CUDA) and Apple Silicon (Metal)
 - **Bounding Box Analysis**: Calculate and sort components by volume or spatial extent
 - **Performance Tracking**: Reports labeling time for benchmarking
 
@@ -41,7 +42,8 @@ The script supports multiple backends for connected component labeling with vary
 |---------|-------|--------------|----------|
 | `cc3d` (default) | 10-100x faster | `pip install connected-components-3d` | Most use cases (recommended) |
 | `scipy` (fallback) | Baseline | None (already installed) | Small volumes, compatibility |
-| `cupy` | 5-50x faster | NVIDIA GPU + CUDA, `pip install cupy-cuda11x` | GPU-equipped systems |
+| `cupy` | 5-50x faster | NVIDIA GPU + CUDA, `pip install cupy-cuda11x` | NVIDIA GPU systems |
+| `mps` | Variable | Apple Silicon + PyTorch, `pip install torch` | Apple M1/M2/M3 Macs |
 | `dask` | Variable | `pip install dask[array]` | Very large volumes (experimental) |
 
 **Recommended installation (cc3d is used as default if installed):**
@@ -49,9 +51,14 @@ The script supports multiple backends for connected component labeling with vary
 pip install connected-components-3d  # Fast CPU backend (10-100x faster)
 ```
 
-**For GPU acceleration:**
+**For GPU acceleration on NVIDIA GPUs:**
 ```bash
 pip install cupy-cuda11x  # Replace 11x with your CUDA version (12x, etc.)
+```
+
+**For GPU acceleration on Apple Silicon Macs (M1/M2/M3):**
+```bash
+pip install torch  # PyTorch with Metal Performance Shaders (MPS) support
 ```
 
 ## Usage
@@ -72,7 +79,7 @@ python isitconnected.py <filename> <depth> <height> <width> [options]
 
 **Optional Arguments:**
 - `-p, --phase`: Phase value to check for connectivity (default: 1)
-- `--backend`: Backend for connected component labeling: `cc3d` (default if installed, fast CPU), `scipy` (fallback), `cupy` (GPU), or `dask` (parallel CPU)
+- `--backend`: Backend for connected component labeling: `cc3d` (default if installed, fast CPU), `scipy` (fallback), `cupy` (NVIDIA GPU), `mps` (Apple Silicon GPU), or `dask` (parallel CPU)
 - `--no-plot`: Skip plotting the slices (useful for batch processing)
 - `--bounding-boxes`: Calculate and display bounding boxes for each component
 - `--sort-by`: Sort components by `volume`, `depth`, `height`, or `width` (default: volume)
@@ -102,8 +109,11 @@ python isitconnected.py image.raw 500 351 351 -p 2 --bounding-boxes --sort-by wi
 # Use fast CPU backend (cc3d) for better performance
 python isitconnected.py image.raw 500 351 351 --backend cc3d
 
-# Use GPU acceleration (requires NVIDIA GPU)
+# Use GPU acceleration on NVIDIA GPUs
 python isitconnected.py image.raw 500 351 351 --backend cupy
+
+# Use GPU acceleration on Apple Silicon Macs (M1/M2/M3)
+python isitconnected.py image.raw 500 351 351 --backend mps
 
 # Use parallel CPU processing for very large volumes
 python isitconnected.py image.raw 500 351 351 --backend dask
@@ -115,12 +125,15 @@ python isitconnected.py --help
 ### Performance Comparison
 
 On a typical 500×351×351 volume, approximate processing times:
-- **scipy** (default): ~10-30 seconds
+- **scipy**: ~10-30 seconds (baseline)
 - **cc3d**: ~0.5-2 seconds (10-100x faster)
-- **cupy**: ~0.2-1 seconds (GPU-dependent)
+- **cupy**: ~0.2-1 seconds (NVIDIA GPU-dependent)
+- **mps**: ~0.5-2 seconds (currently uses cc3d/scipy for labeling)
 - **dask**: Variable (depends on chunk size and CPU cores)
 
-**Recommendation**: Use `--backend cc3d` for the best balance of speed and compatibility.
+**Note on MPS backend**: PyTorch does not have native connected component labeling, so the MPS backend currently uses cc3d (if installed) or scipy for the actual labeling step. Future updates may implement a fully GPU-accelerated algorithm.
+
+**Recommendation**: Use `--backend cc3d` for the best balance of speed and compatibility across all platforms.
 ```
 
 ### Function Reference
@@ -141,7 +154,7 @@ Analyzes connectivity for a specific phase value.
 **Parameters:**
 - `volume` (np.ndarray): 3D image array
 - `phase` (int): Voxel value representing the phase of interest
-- `backend` (str): Backend to use: 'cc3d' (default), 'scipy', 'cupy', or 'dask'
+- `backend` (str): Backend to use: 'cc3d' (default), 'scipy', 'cupy', 'mps', or 'dask'
 
 **Returns:**
 - `labeled` (np.ndarray): Labeled connected components

@@ -8,7 +8,10 @@ connected-components-3d>=3.10.0
 
 # Additional optional dependencies for acceleration (install as needed)
 
-# For GPU acceleration (requires NVIDIA GPU with CUDA):
+# For GPU acceleration on Apple Silicon Macs (M1/M2/M3):
+# torch>=2.0.0  # PyTorch with MPS (Metal Performance Shaders) support
+
+# For GPU acceleration on NVIDIA GPUs (requires CUDA):
 # cupy-cuda11x>=11.0.0  # Replace with appropriate CUDA version (11x, 12x, etc.)
 
 # For parallel CPU processing of large volumes:

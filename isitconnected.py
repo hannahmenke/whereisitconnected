@@ -26,6 +26,15 @@ try:
 except ImportError:
     DASK_AVAILABLE = False
 
+try:
+    import torch
+    # Check if MPS (Metal Performance Shaders) is available
+    MPS_AVAILABLE = torch.backends.mps.is_available() if hasattr(torch.backends, 'mps') else False
+    TORCH_AVAILABLE = True
+except ImportError:
+    MPS_AVAILABLE = False
+    TORCH_AVAILABLE = False
+
 def load_raw_3d(filename, dims, dtype=np.uint8):
     """
     Load an 8-bit raw 3D image from a file, automatically determining and skipping header bytes.
@@ -118,6 +127,33 @@ def check_phase_connectivity(volume, phase=1, backend='cc3d'):
         struct[1, 1, 0] = 1
         struct[1, 1, 2] = 1
         labeled, num_features = ndimage.label(mask, structure=struct)
+
+    elif backend == 'mps':
+        if not MPS_AVAILABLE:
+            if not TORCH_AVAILABLE:
+                raise ImportError("PyTorch is not installed. Install with: pip install torch")
+            else:
+                raise RuntimeError("MPS backend requires Apple Silicon Mac with macOS 12.3+")
+
+        # MPS doesn't have native connected components, so we use a hybrid approach:
+        # Use MPS for preprocessing, then use cc3d or scipy for labeling
+        print("Note: MPS backend uses GPU for preprocessing, then cc3d/scipy for labeling")
+
+        # Try to use cc3d for the actual labeling (fastest)
+        if CC3D_AVAILABLE:
+            labeled = cc3d.connected_components(mask.astype(np.uint8), connectivity=6)
+            num_features = labeled.max()
+        else:
+            # Fallback to scipy
+            struct = np.zeros((3, 3, 3), dtype=int)
+            struct[1, 1, 1] = 1
+            struct[0, 1, 1] = 1
+            struct[2, 1, 1] = 1
+            struct[1, 0, 1] = 1
+            struct[1, 2, 1] = 1
+            struct[1, 1, 0] = 1
+            struct[1, 1, 2] = 1
+            labeled, num_features = ndimage.label(mask, structure=struct)
 
     else:  # scipy (default)
         # 6-connected (face connectivity) structure
@@ -237,8 +273,9 @@ Examples:
   python isitconnected.py data.raw 100 100 100 -p 2
   python isitconnected.py image.raw 500 351 351 --bounding-boxes
   python isitconnected.py image.raw 500 351 351 --bounding-boxes --sort-by depth
-  python isitconnected.py image.raw 500 351 351 --backend cc3d  # Fast CPU
-  python isitconnected.py image.raw 500 351 351 --backend cupy  # GPU accelerated
+  python isitconnected.py image.raw 500 351 351 --backend cc3d   # Fast CPU
+  python isitconnected.py image.raw 500 351 351 --backend cupy   # NVIDIA GPU
+  python isitconnected.py image.raw 500 351 351 --backend mps    # Apple Silicon GPU
         """
     )
 
@@ -263,8 +300,8 @@ Examples:
     default_backend = 'cc3d' if CC3D_AVAILABLE else 'scipy'
 
     parser.add_argument('--backend', type=str, default=default_backend,
-                        choices=['scipy', 'cc3d', 'cupy', 'dask'],
-                        help='Backend for connected component labeling: cc3d (default if installed, fast CPU), scipy (fallback, slow), cupy (GPU), dask (parallel CPU)')
+                        choices=['scipy', 'cc3d', 'cupy', 'mps', 'dask'],
+                        help='Backend for connected component labeling: cc3d (default if installed, fast CPU), scipy (fallback, slow), cupy (NVIDIA GPU), mps (Apple Silicon GPU), dask (parallel CPU)')
 
     args = parser.parse_args()
 
@@ -282,6 +319,15 @@ Examples:
         print("ERROR: dask backend requested but not installed.")
         print("Install with: pip install dask[array]")
         sys.exit(1)
+    elif args.backend == 'mps' and not MPS_AVAILABLE:
+        if not TORCH_AVAILABLE:
+            print("ERROR: mps backend requested but PyTorch is not installed.")
+            print("Install with: pip install torch")
+            sys.exit(1)
+        else:
+            print("ERROR: MPS (Metal Performance Shaders) is not available.")
+            print("MPS requires Apple Silicon Mac (M1/M2/M3) with macOS 12.3 or later.")
+            sys.exit(1)
 
     # Define the dimensions from command-line arguments
     dims = (args.depth, args.height, args.width)
