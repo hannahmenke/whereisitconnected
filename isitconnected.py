@@ -199,38 +199,78 @@ def get_component_bounding_boxes(labeled, num_features):
     """
     components = []
 
-    for label in range(1, num_features + 1):
-        # Find all voxels belonging to this component
-        component_mask = (labeled == label)
-        coords = np.argwhere(component_mask)
+    # Use cc3d's built-in statistics if available (much faster!)
+    if CC3D_AVAILABLE:
+        stats = cc3d.statistics(labeled)
 
-        if coords.size == 0:
-            continue
+        for label in range(1, num_features + 1):
+            # Get bounding box from cc3d statistics
+            # Format: tuple of slice objects (slice_z, slice_y, slice_x)
+            bbox_slices = stats['bounding_boxes'][label]
 
-        # Calculate bounding box
-        min_coords = coords.min(axis=0)
-        max_coords = coords.max(axis=0)
+            # Get volume (voxel count)
+            volume = stats['voxel_counts'][label]
 
-        # Calculate extents
-        extent_depth = max_coords[0] - min_coords[0] + 1
-        extent_height = max_coords[1] - min_coords[1] + 1
-        extent_width = max_coords[2] - min_coords[2] + 1
+            # Extract min/max from slice objects
+            min_depth = bbox_slices[0].start
+            max_depth = bbox_slices[0].stop - 1  # slice.stop is exclusive
+            min_height = bbox_slices[1].start
+            max_height = bbox_slices[1].stop - 1
+            min_width = bbox_slices[2].start
+            max_width = bbox_slices[2].stop - 1
 
-        # Calculate volume (number of voxels)
-        volume = coords.shape[0]
+            # Calculate extents
+            extent_depth = max_depth - min_depth + 1
+            extent_height = max_height - min_height + 1
+            extent_width = max_width - min_width + 1
 
-        component_info = {
-            'label': label,
-            'bbox': (min_coords[0], max_coords[0],
-                    min_coords[1], max_coords[1],
-                    min_coords[2], max_coords[2]),
-            'volume': volume,
-            'extent_depth': extent_depth,
-            'extent_height': extent_height,
-            'extent_width': extent_width
-        }
+            component_info = {
+                'label': label,
+                'bbox': (min_depth, max_depth,
+                        min_height, max_height,
+                        min_width, max_width),
+                'volume': volume,
+                'extent_depth': extent_depth,
+                'extent_height': extent_height,
+                'extent_width': extent_width
+            }
 
-        components.append(component_info)
+            components.append(component_info)
+
+    else:
+        # Fallback to manual calculation if cc3d not available
+        for label in range(1, num_features + 1):
+            # Find all voxels belonging to this component
+            component_mask = (labeled == label)
+            coords = np.argwhere(component_mask)
+
+            if coords.size == 0:
+                continue
+
+            # Calculate bounding box
+            min_coords = coords.min(axis=0)
+            max_coords = coords.max(axis=0)
+
+            # Calculate extents
+            extent_depth = max_coords[0] - min_coords[0] + 1
+            extent_height = max_coords[1] - min_coords[1] + 1
+            extent_width = max_coords[2] - min_coords[2] + 1
+
+            # Calculate volume (number of voxels)
+            volume = coords.shape[0]
+
+            component_info = {
+                'label': label,
+                'bbox': (min_coords[0], max_coords[0],
+                        min_coords[1], max_coords[1],
+                        min_coords[2], max_coords[2]),
+                'volume': volume,
+                'extent_depth': extent_depth,
+                'extent_height': extent_height,
+                'extent_width': extent_width
+            }
+
+            components.append(component_info)
 
     return components
 
@@ -296,6 +336,8 @@ Examples:
     parser.add_argument('--sort-by', type=str, default='volume',
                         choices=['volume', 'depth', 'height', 'width'],
                         help='Sort components by: volume (voxel count), depth (extent along depth axis), height, or width (default: volume)')
+    parser.add_argument('--top-n', type=int, default=10,
+                        help='Number of top components to display when using --bounding-boxes (default: 10, use 0 for all)')
     # Determine default backend based on what's available
     default_backend = 'cc3d' if CC3D_AVAILABLE else 'scipy'
 
@@ -378,9 +420,17 @@ Examples:
         sort_key = sort_key_map[args.sort_by]
         components_sorted = sorted(components, key=lambda x: x[sort_key], reverse=True)
 
-        print("Sorted by: {} (descending)\n".format(args.sort_by))
+        # Limit to top N components if specified
+        if args.top_n > 0:
+            components_to_display = components_sorted[:args.top_n]
+            print("Sorted by: {} (descending)".format(args.sort_by))
+            print("Showing top {} of {} components\n".format(min(args.top_n, len(components_sorted)), len(components_sorted)))
+        else:
+            components_to_display = components_sorted
+            print("Sorted by: {} (descending)".format(args.sort_by))
+            print("Showing all {} components\n".format(len(components_sorted)))
 
-        for i, comp in enumerate(components_sorted, 1):
+        for i, comp in enumerate(components_to_display, 1):
             print("Component #{} (Label: {})".format(i, comp['label']))
             print("  Bounding Box:")
             print("    Depth:  [{:5d} - {:5d}]  (extent: {:5d})".format(
