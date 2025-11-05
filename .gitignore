@@ -4,6 +4,8 @@
 # Output files
 results*.txt
 *.out
+labels*.raw
+labels*.npy
 
 # Python cache
 __pycache__/

@@ -1,4 +1,4 @@
-# IsItConnected - 3D Phase Connectivity Analyzer
+# WhereIsItConnected - 3D Phase Connectivity Analyzer
 
 A Python tool for analyzing phase connectivity in 3D volumetric imaging data, particularly useful for nanoCT scans and materials science applications.
 
@@ -68,7 +68,7 @@ pip install torch  # PyTorch with Metal Performance Shaders (MPS) support
 Run the script with command-line arguments:
 
 ```bash
-python isitconnected.py <filename> <depth> <height> <width> [options]
+python whereisitconnected.py <filename> <depth> <height> <width> [options]
 ```
 
 **Required Arguments:**
@@ -76,6 +76,11 @@ python isitconnected.py <filename> <depth> <height> <width> [options]
 - `depth`: Depth dimension (z-axis) of the 3D volume
 - `height`: Height dimension (y-axis) of the 3D volume
 - `width`: Width dimension (x-axis) of the 3D volume
+
+**IMPORTANT: Dimension Order**
+⚠️ Note that dimensions are specified as **DEPTH HEIGHT WIDTH** (Z Y X), not X Y Z!
+This follows NumPy/Python convention. If your imaging software reports dimensions as X Y Z,
+you need to reverse the order when using this tool.
 
 **Optional Arguments:**
 - `-p, --phase`: Phase value to check for connectivity (default: 1)
@@ -85,43 +90,50 @@ python isitconnected.py <filename> <depth> <height> <width> [options]
 - `--sort-by`: Sort components by `volume`, `depth`, `height`, or `width` (default: volume)
 - `--top-n`: Number of top components to display (default: 10, use 0 for all)
 - `-o, --output`: Output file for results (default: stdout)
+- `--save-labels`: Save labeled volume to file (.npy or .raw format)
 - `-h, --help`: Show help message
 
 **Examples:**
 
 ```bash
 # Basic usage with default phase (1)
-python isitconnected.py image.raw 500 351 351
+python whereisitconnected.py image.raw 500 351 351
 
 # Specify a different phase to analyze
-python isitconnected.py image.raw 500 351 351 --phase 2
+python whereisitconnected.py image.raw 500 351 351 --phase 2
 
 # Skip plotting for faster processing
-python isitconnected.py image.raw 500 351 351 -p 1 --no-plot
+python whereisitconnected.py image.raw 500 351 351 -p 1 --no-plot
 
 # Get bounding boxes for each component, sorted by volume
-python isitconnected.py image.raw 500 351 351 --bounding-boxes
+python whereisitconnected.py image.raw 500 351 351 --bounding-boxes
 
 # Get bounding boxes sorted by extent along depth axis
-python isitconnected.py image.raw 500 351 351 --bounding-boxes --sort-by depth
+python whereisitconnected.py image.raw 500 351 351 --bounding-boxes --sort-by depth
 
 # Analyze phase 2, get bounding boxes sorted by width, skip plotting
-python isitconnected.py image.raw 500 351 351 -p 2 --bounding-boxes --sort-by width --no-plot
+python whereisitconnected.py image.raw 500 351 351 -p 2 --bounding-boxes --sort-by width --no-plot
 
 # Use fast CPU backend (cc3d) for better performance
-python isitconnected.py image.raw 500 351 351 --backend cc3d
+python whereisitconnected.py image.raw 500 351 351 --backend cc3d
 
 # Use GPU acceleration on NVIDIA GPUs
-python isitconnected.py image.raw 500 351 351 --backend cupy
+python whereisitconnected.py image.raw 500 351 351 --backend cupy
 
 # Use GPU acceleration on Apple Silicon Macs (M1/M2/M3)
-python isitconnected.py image.raw 500 351 351 --backend mps
+python whereisitconnected.py image.raw 500 351 351 --backend mps
 
 # Use parallel CPU processing for very large volumes
-python isitconnected.py image.raw 500 351 351 --backend dask
+python whereisitconnected.py image.raw 500 351 351 --backend dask
+
+# Save labeled volume for visualization in other software
+python whereisitconnected.py image.raw 500 351 351 --save-labels labels.npy
+
+# Save results and labeled volume
+python whereisitconnected.py image.raw 500 351 351 --bounding-boxes -o results.txt --save-labels labels.raw
 
 # Show help
-python isitconnected.py --help
+python whereisitconnected.py --help
 ```
 
 ### Performance Comparison
@@ -193,7 +205,7 @@ The script provides:
 
 ### Example Output
 ```bash
-$ python isitconnected.py Oxford-28_nanoCT_pore_labels.raw 500 351 351 --phase 1
+$ python whereisitconnected.py Oxford-28_nanoCT_pore_labels.raw 500 351 351 --phase 1
 
 Loading file: Oxford-28_nanoCT_pore_labels.raw
 Dimensions: (500, 351, 351) (depth x height x width)
@@ -211,7 +223,7 @@ Phase 1 is connected along axis2 (width) (common component labels: [5])
 
 ### Bounding Box Output Example
 ```bash
-$ python isitconnected.py image.raw 500 351 351 --bounding-boxes --sort-by volume
+$ python whereisitconnected.py image.raw 500 351 351 --bounding-boxes --sort-by volume
 
 ... (connectivity output) ...
 

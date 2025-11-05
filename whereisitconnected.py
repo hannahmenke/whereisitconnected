@@ -309,14 +309,15 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python isitconnected.py image.raw 500 351 351 --phase 1
-  python isitconnected.py data.raw 100 100 100 -p 2
-  python isitconnected.py image.raw 500 351 351 --bounding-boxes
-  python isitconnected.py image.raw 500 351 351 --bounding-boxes --sort-by depth
-  python isitconnected.py image.raw 500 351 351 --backend cc3d   # Fast CPU
-  python isitconnected.py image.raw 500 351 351 --backend cupy   # NVIDIA GPU
-  python isitconnected.py image.raw 500 351 351 --backend mps    # Apple Silicon GPU
-  python isitconnected.py image.raw 500 351 351 --bounding-boxes -o results.txt  # Save to file
+  python whereisitconnected.py image.raw 500 351 351 --phase 1
+  python whereisitconnected.py data.raw 100 100 100 -p 2
+  python whereisitconnected.py image.raw 500 351 351 --bounding-boxes
+  python whereisitconnected.py image.raw 500 351 351 --bounding-boxes --sort-by depth
+  python whereisitconnected.py image.raw 500 351 351 --backend cc3d   # Fast CPU
+  python whereisitconnected.py image.raw 500 351 351 --backend cupy   # NVIDIA GPU
+  python whereisitconnected.py image.raw 500 351 351 --backend mps    # Apple Silicon GPU
+  python whereisitconnected.py image.raw 500 351 351 --bounding-boxes -o results.txt  # Save to file
+  python whereisitconnected.py image.raw 500 351 351 --save-labels labels.npy  # Save labeled volume
         """
     )
 
@@ -341,6 +342,8 @@ Examples:
                         help='Number of top components to display when using --bounding-boxes (default: 10, use 0 for all)')
     parser.add_argument('--output', '-o', type=str, default=None,
                         help='Output file for results (default: print to stdout). If specified, results are written to this file.')
+    parser.add_argument('--save-labels', type=str, default=None,
+                        help='Save the labeled volume to a file. Specify filename (e.g., labels.raw or labels.npy). Format determined by extension: .raw (raw binary), .npy (numpy format)')
     # Determine default backend based on what's available
     default_backend = 'cc3d' if CC3D_AVAILABLE else 'scipy'
 
@@ -454,6 +457,39 @@ Examples:
                 comp['bbox'][4], comp['bbox'][5], comp['extent_width']))
             output("  Volume: {:,} voxels".format(comp['volume']))
             output("")
+
+    # Save labeled volume if requested
+    if args.save_labels:
+        print("\nSaving labeled volume to: {}".format(args.save_labels))
+        if args.save_labels.endswith('.npy'):
+            # Save as NumPy format (includes metadata, compressed)
+            np.save(args.save_labels, labeled)
+            print("Saved as NumPy format (.npy)")
+        elif args.save_labels.endswith('.raw'):
+            # Save as raw binary format
+            # Determine appropriate dtype based on number of labels
+            if num_features <= 255:
+                save_dtype = np.uint8
+            elif num_features <= 65535:
+                save_dtype = np.uint16
+            else:
+                save_dtype = np.uint32
+
+            labeled_to_save = labeled.astype(save_dtype)
+            labeled_to_save.tofile(args.save_labels)
+            print("Saved as raw binary format (.raw) with dtype: {}".format(save_dtype))
+            print("Dimensions: {} (depth x height x width)".format(labeled.shape))
+        else:
+            print("Warning: Unrecognized extension. Saving as raw binary (.raw format)")
+            if num_features <= 255:
+                save_dtype = np.uint8
+            elif num_features <= 65535:
+                save_dtype = np.uint16
+            else:
+                save_dtype = np.uint32
+            labeled_to_save = labeled.astype(save_dtype)
+            labeled_to_save.tofile(args.save_labels)
+            print("Saved with dtype: {}".format(save_dtype))
 
     # Close output file if it was opened
     if args.output:
