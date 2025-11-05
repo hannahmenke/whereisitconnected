@@ -4,6 +4,9 @@ import sys
 import numpy as np
 from scipy import ndimage
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from skimage import measure
 
 # Optional imports for acceleration
 try:
@@ -303,6 +306,88 @@ def plot_slices(volume):
     plt.tight_layout()
     plt.show()
 
+def render_3d_component(labeled, component_label, output_file=None, elevation=30, azimuth=45, subsample=1):
+    """
+    Render a 3D surface visualization of a specific component using marching cubes.
+
+    Parameters:
+        labeled (np.ndarray): Array of labeled connected components.
+        component_label (int): Component label to visualize.
+        output_file (str): Optional file to save the visualization.
+        elevation (int): Viewing elevation angle in degrees (default: 30).
+        azimuth (int): Viewing azimuth angle in degrees (default: 45).
+        subsample (int): Subsampling factor to reduce memory usage (default: 1, no subsampling).
+    """
+    print("Rendering 3D surface visualization of component {}...".format(component_label))
+
+    # Extract only the target component
+    component_mask = (labeled == component_label).astype(np.uint8)
+
+    # Subsample if needed for large volumes
+    if subsample > 1:
+        component_mask = component_mask[::subsample, ::subsample, ::subsample]
+        print("WARNING: Subsampling by factor of {} - thin structures may lose connectivity!".format(subsample))
+
+    if component_mask.sum() == 0:
+        print("ERROR: No voxels found for component {}".format(component_label))
+        return
+
+    print("Generating surface mesh using marching cubes...")
+
+    # Use marching cubes to create a surface mesh
+    try:
+        verts, faces, normals, values = measure.marching_cubes(component_mask, level=0.5, spacing=(1.0, 1.0, 1.0))
+    except Exception as e:
+        print("ERROR: Failed to generate surface mesh: {}".format(e))
+        return
+
+    print("Generated mesh with {} vertices and {} faces".format(len(verts), len(faces)))
+
+    # Marching cubes outputs vertices in (Z, Y, X) order, but matplotlib expects (X, Y, Z)
+    # Swap the coordinates
+    verts_swapped = verts[:, [2, 1, 0]]
+
+    # Create 3D plot
+    fig = plt.figure(figsize=(12, 10))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Create the mesh with swapped coordinates and lighting
+    mesh = Poly3DCollection(verts_swapped[faces], alpha=0.9, linewidth=0, edgecolor='darkblue')
+    mesh.set_facecolor([0.3, 0.7, 1.0])
+    ax.add_collection3d(mesh)
+
+    # Set plot limits based on actual mesh bounds with some padding
+    padding = 5
+    ax.set_xlim(verts_swapped[:, 0].min() - padding, verts_swapped[:, 0].max() + padding)
+    ax.set_ylim(verts_swapped[:, 1].min() - padding, verts_swapped[:, 1].max() + padding)
+    ax.set_zlim(verts_swapped[:, 2].min() - padding, verts_swapped[:, 2].max() + padding)
+
+    # Set labels
+    ax.set_xlabel('Width (X)')
+    ax.set_ylabel('Height (Y)')
+    ax.set_zlabel('Depth (Z)')
+    ax.set_title('3D Surface: Component {}'.format(component_label))
+
+    # Set viewing angle
+    ax.view_init(elev=elevation, azim=azimuth)
+
+    # Set background color
+    ax.xaxis.pane.fill = False
+    ax.yaxis.pane.fill = False
+    ax.zaxis.pane.fill = False
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    # Save or show
+    if output_file:
+        plt.savefig(output_file, dpi=200, bbox_inches='tight', facecolor='white')
+        print("3D visualization saved to: {}".format(output_file))
+    else:
+        plt.show()
+
+    plt.close()
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Analyze phase connectivity in 3D volumetric imaging data.",
@@ -319,6 +404,7 @@ Examples:
   python whereisitconnected.py image.raw 500 351 351 --bounding-boxes -o results.txt  # Save to file
   python whereisitconnected.py image.raw 500 351 351 --save-labels labels.npy  # Save labeled volume
   python whereisitconnected.py image.raw 500 351 351 --crop-mode --label-file labels.npy --component-label 94 --crop-output cropped.raw  # Crop mode
+  python whereisitconnected.py image.raw 500 351 351 --render-3d component94.png --render-component 0  # Render largest component
         """
     )
 
@@ -355,6 +441,16 @@ Examples:
                         help='Component label to crop to (required for --crop-mode)')
     parser.add_argument('--crop-output', type=str, default=None,
                         help='Output file for cropped volume (required for --crop-mode)')
+
+    # 3D visualization options
+    parser.add_argument('--render-3d', type=str, default=None,
+                        help='Render 3D visualization of a component. Specify output image file (e.g., component.png)')
+    parser.add_argument('--render-component', type=int, default=None,
+                        help='Component label to render (required with --render-3d). Use 0 to render largest component')
+    parser.add_argument('--render-subsample', type=int, default=1,
+                        help='Subsampling factor for rendering (default: 1, no subsampling). Higher = faster but lower resolution. WARNING: Subsampling thin structures like fractures will lose connectivity')
+    parser.add_argument('--render-angle', type=int, nargs=2, default=[30, 45], metavar=('ELEV', 'AZIM'),
+                        help='Viewing angles: elevation and azimuth in degrees (default: 30 45)')
     # Determine default backend based on what's available
     default_backend = 'cc3d' if CC3D_AVAILABLE else 'scipy'
 
@@ -555,6 +651,33 @@ Examples:
             labeled_to_save = labeled.astype(save_dtype)
             labeled_to_save.tofile(args.save_labels)
             print("Saved with dtype: {}".format(save_dtype))
+
+    # Render 3D visualization if requested
+    if args.render_3d:
+        if args.render_component is None:
+            print("ERROR: --render-3d requires --render-component")
+            sys.exit(1)
+
+        # Determine which component to render
+        if args.render_component == 0:
+            # Find largest component
+            if CC3D_AVAILABLE:
+                stats = cc3d.statistics(labeled)
+                volumes = [(label, stats['voxel_counts'][label]) for label in range(1, num_features + 1)]
+                target_label = max(volumes, key=lambda x: x[1])[0]
+                print("Rendering largest component (Label: {})".format(target_label))
+            else:
+                volumes = [(label, np.sum(labeled == label)) for label in range(1, num_features + 1)]
+                target_label = max(volumes, key=lambda x: x[1])[0]
+                print("Rendering largest component (Label: {})".format(target_label))
+        else:
+            target_label = args.render_component
+
+        render_3d_component(labeled, target_label,
+                          output_file=args.render_3d,
+                          elevation=args.render_angle[0],
+                          azimuth=args.render_angle[1],
+                          subsample=args.render_subsample)
 
     # Close output file if it was opened
     if args.output:

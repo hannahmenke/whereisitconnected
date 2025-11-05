@@ -8,6 +8,8 @@ labels*.raw
 labels*.npy
 cropped*.raw
 cropped*.npy
+component*.png
+component*.jpg
 
 # Python cache
 __pycache__/

@@ -99,6 +99,12 @@ you need to reverse the order when using this tool.
 - `--component-label`: Specific component label to crop
 - `--crop-output`: Output file for cropped volume
 
+**3D Visualization:**
+- `--render-3d`: Output image file for 3D rendering (e.g., component.png)
+- `--render-component`: Component label to render (use 0 for largest component)
+- `--render-subsample`: Subsampling factor (default: 5, higher = faster/lower resolution)
+- `--render-angle`: Viewing angles as elevation and azimuth in degrees (default: 30 45)
+
 **Examples:**
 
 ```bash
