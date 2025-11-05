@@ -93,6 +93,12 @@ you need to reverse the order when using this tool.
 - `--save-labels`: Save labeled volume to file (.npy or .raw format)
 - `-h, --help`: Show help message
 
+**Crop Mode (two-pass workflow):**
+- `--crop-mode`: Enable crop mode to extract a component's bounding box
+- `--label-file`: Path to label file (.npy format, from previous run with --save-labels)
+- `--component-label`: Specific component label to crop
+- `--crop-output`: Output file for cropped volume
+
 **Examples:**
 
 ```bash
@@ -131,6 +137,12 @@ python whereisitconnected.py image.raw 500 351 351 --save-labels labels.npy
 
 # Save results and labeled volume
 python whereisitconnected.py image.raw 500 351 351 --bounding-boxes -o results.txt --save-labels labels.raw
+
+# Two-pass workflow: First analyze and save labels
+python whereisitconnected.py image.raw 500 351 351 --save-labels labels.npy --bounding-boxes
+
+# Then crop to a specific component (e.g., component 94)
+python whereisitconnected.py image.raw 500 351 351 --crop-mode --label-file labels.npy --component-label 94 --crop-output cropped.raw
 
 # Show help
 python whereisitconnected.py --help

@@ -318,6 +318,7 @@ Examples:
   python whereisitconnected.py image.raw 500 351 351 --backend mps    # Apple Silicon GPU
   python whereisitconnected.py image.raw 500 351 351 --bounding-boxes -o results.txt  # Save to file
   python whereisitconnected.py image.raw 500 351 351 --save-labels labels.npy  # Save labeled volume
+  python whereisitconnected.py image.raw 500 351 351 --crop-mode --label-file labels.npy --component-label 94 --crop-output cropped.raw  # Crop mode
         """
     )
 
@@ -344,6 +345,16 @@ Examples:
                         help='Output file for results (default: print to stdout). If specified, results are written to this file.')
     parser.add_argument('--save-labels', type=str, default=None,
                         help='Save the labeled volume to a file. Specify filename (e.g., labels.raw or labels.npy). Format determined by extension: .raw (raw binary), .npy (numpy format)')
+
+    # Crop mode - separate from main analysis
+    parser.add_argument('--crop-mode', action='store_true',
+                        help='Crop mode: extract bounding box from a pre-computed label image. Requires --label-file and --component-label')
+    parser.add_argument('--label-file', type=str, default=None,
+                        help='Path to label file (.npy format) for crop mode')
+    parser.add_argument('--component-label', type=int, default=None,
+                        help='Component label to crop to (required for --crop-mode)')
+    parser.add_argument('--crop-output', type=str, default=None,
+                        help='Output file for cropped volume (required for --crop-mode)')
     # Determine default backend based on what's available
     default_backend = 'cc3d' if CC3D_AVAILABLE else 'scipy'
 
@@ -352,6 +363,60 @@ Examples:
                         help='Backend for connected component labeling: cc3d (default if installed, fast CPU), scipy (fallback, slow), cupy (NVIDIA GPU), mps (Apple Silicon GPU), dask (parallel CPU)')
 
     args = parser.parse_args()
+
+    # Handle crop mode separately
+    if args.crop_mode:
+        if not args.label_file or not args.component_label or not args.crop_output:
+            print("ERROR: Crop mode requires --label-file, --component-label, and --crop-output")
+            sys.exit(1)
+
+        print("=== CROP MODE ===")
+        print("Loading label file: {}".format(args.label_file))
+        print("Original image: {}".format(args.filename))
+        print("Target component: {}".format(args.component_label))
+
+        # Load label file
+        if args.label_file.endswith('.npy'):
+            labeled = np.load(args.label_file)
+        else:
+            print("ERROR: Label file must be .npy format")
+            sys.exit(1)
+
+        # Load original volume
+        dims = (args.depth, args.height, args.width)
+        volume = load_raw_3d(args.filename, dims)
+
+        # Get bounding box for target component
+        coords = np.argwhere(labeled == args.component_label)
+        if coords.size == 0:
+            print("ERROR: Component label {} not found in label file".format(args.component_label))
+            sys.exit(1)
+
+        min_coords = coords.min(axis=0)
+        max_coords = coords.max(axis=0)
+
+        # Crop the original volume
+        cropped = volume[min_coords[0]:max_coords[0]+1,
+                        min_coords[1]:max_coords[1]+1,
+                        min_coords[2]:max_coords[2]+1]
+
+        # Save cropped volume
+        if args.crop_output.endswith('.npy'):
+            np.save(args.crop_output, cropped)
+            print("Saved as NumPy format (.npy)")
+        else:
+            cropped.tofile(args.crop_output)
+            print("Saved as raw binary format")
+
+        print("\nCrop information:")
+        print("  Original dimensions: {}".format(volume.shape))
+        print("  Cropped dimensions:  {}".format(cropped.shape))
+        print("  Bounding box:")
+        print("    Depth:  [{} - {}]".format(min_coords[0], max_coords[0]))
+        print("    Height: [{} - {}]".format(min_coords[1], max_coords[1]))
+        print("    Width:  [{} - {}]".format(min_coords[2], max_coords[2]))
+        print("  Output file: {}".format(args.crop_output))
+        sys.exit(0)
 
     # Check backend availability and warn user
     if args.backend == 'cc3d' and not CC3D_AVAILABLE:

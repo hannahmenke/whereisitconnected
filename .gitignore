@@ -6,6 +6,8 @@ results*.txt
 *.out
 labels*.raw
 labels*.npy
+cropped*.raw
+cropped*.npy
 
 # Python cache
 __pycache__/
