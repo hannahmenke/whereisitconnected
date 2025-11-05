@@ -1,6 +1,6 @@
 # WhereIsItConnected - 3D Phase Connectivity Analyzer
 
-A Python tool for analyzing phase connectivity in 3D volumetric imaging data, particularly useful for nanoCT scans and materials science applications.
+A Python tool for analyzing phase connectivity in 3D volumetric imaging data, particularly useful for microCT scans and materials science applications.
 
 ## Overview
 
