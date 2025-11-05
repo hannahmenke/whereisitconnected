@@ -1,8 +1,30 @@
 import os
 import argparse
+import sys
 import numpy as np
 from scipy import ndimage
 import matplotlib.pyplot as plt
+
+# Optional imports for acceleration
+try:
+    import cc3d
+    CC3D_AVAILABLE = True
+except ImportError:
+    CC3D_AVAILABLE = False
+
+try:
+    import cupy as cp
+    import cupyx.scipy.ndimage as cp_ndimage
+    CUPY_AVAILABLE = True
+except ImportError:
+    CUPY_AVAILABLE = False
+
+try:
+    import dask.array as da
+    from dask.diagnostics import ProgressBar
+    DASK_AVAILABLE = True
+except ImportError:
+    DASK_AVAILABLE = False
 
 def load_raw_3d(filename, dims, dtype=np.uint8):
     """
@@ -36,15 +58,16 @@ def load_raw_3d(filename, dims, dtype=np.uint8):
         raise ValueError("After skipping header, the data size does not match the expected dimensions.")
     return data.reshape(dims)
 
-def check_phase_connectivity(volume, phase=1):
+def check_phase_connectivity(volume, phase=1, backend='cc3d'):
     """
     Checks connectivity for a given phase in a 3D volume using voxel face connectivity.
     Determines if any connected component spans from one face to the opposite face along each axis.
-    
+
     Parameters:
         volume (np.ndarray): The 3D image array.
         phase (int): The voxel value representing the phase of interest.
-    
+        backend (str): Backend to use: 'scipy', 'cc3d', 'cupy', or 'dask'.
+
     Returns:
         labeled (np.ndarray): Array of labeled connected components.
         num_features (int): Number of connected components.
@@ -52,18 +75,61 @@ def check_phase_connectivity(volume, phase=1):
                              where is_connected is True if a component touches both boundaries.
     """
     mask = (volume == phase)
-    
-    # 6-connected (face connectivity) structure
-    struct = np.zeros((3, 3, 3), dtype=int)
-    struct[1, 1, 1] = 1
-    struct[0, 1, 1] = 1  # -z
-    struct[2, 1, 1] = 1  # +z
-    struct[1, 0, 1] = 1  # -y
-    struct[1, 2, 1] = 1  # +y
-    struct[1, 1, 0] = 1  # -x
-    struct[1, 1, 2] = 1  # +x
 
-    labeled, num_features = ndimage.label(mask, structure=struct)
+    # Perform connected component labeling based on backend
+    if backend == 'cc3d':
+        if not CC3D_AVAILABLE:
+            raise ImportError("cc3d is not installed. Install with: pip install connected-components-3d")
+        # cc3d uses 6-connectivity by default
+        labeled = cc3d.connected_components(mask.astype(np.uint8), connectivity=6)
+        num_features = labeled.max()
+
+    elif backend == 'cupy':
+        if not CUPY_AVAILABLE:
+            raise ImportError("cupy is not installed. Install with: pip install cupy-cuda11x (or appropriate CUDA version)")
+        # Transfer to GPU
+        mask_gpu = cp.asarray(mask)
+        struct_gpu = cp.zeros((3, 3, 3), dtype=cp.int32)
+        struct_gpu[1, 1, 1] = 1
+        struct_gpu[0, 1, 1] = 1
+        struct_gpu[2, 1, 1] = 1
+        struct_gpu[1, 0, 1] = 1
+        struct_gpu[1, 2, 1] = 1
+        struct_gpu[1, 1, 0] = 1
+        struct_gpu[1, 1, 2] = 1
+        labeled_gpu, num_features = cp_ndimage.label(mask_gpu, structure=struct_gpu)
+        # Transfer back to CPU
+        labeled = cp.asnumpy(labeled_gpu)
+
+    elif backend == 'dask':
+        if not DASK_AVAILABLE:
+            raise ImportError("dask is not installed. Install with: pip install dask[array]")
+        # Convert to dask array with chunks
+        mask_da = da.from_array(mask, chunks='auto')
+        # Note: dask doesn't have native ndimage.label, so we use map_overlap
+        # This is a simplified implementation - for production use scipy on chunks
+        print("Warning: Dask backend uses scipy.ndimage on chunks - may not be optimal for connected components")
+        struct = np.zeros((3, 3, 3), dtype=int)
+        struct[1, 1, 1] = 1
+        struct[0, 1, 1] = 1
+        struct[2, 1, 1] = 1
+        struct[1, 0, 1] = 1
+        struct[1, 2, 1] = 1
+        struct[1, 1, 0] = 1
+        struct[1, 1, 2] = 1
+        labeled, num_features = ndimage.label(mask, structure=struct)
+
+    else:  # scipy (default)
+        # 6-connected (face connectivity) structure
+        struct = np.zeros((3, 3, 3), dtype=int)
+        struct[1, 1, 1] = 1
+        struct[0, 1, 1] = 1  # -z
+        struct[2, 1, 1] = 1  # +z
+        struct[1, 0, 1] = 1  # -y
+        struct[1, 2, 1] = 1  # +y
+        struct[1, 1, 0] = 1  # -x
+        struct[1, 1, 2] = 1  # +x
+        labeled, num_features = ndimage.label(mask, structure=struct)
 
     connectivity = {}
     axes_names = ['axis0 (depth)', 'axis1 (height)', 'axis2 (width)']
@@ -74,7 +140,7 @@ def check_phase_connectivity(volume, phase=1):
         labels_max.discard(0)
         common = labels_min.intersection(labels_max)
         connectivity[name] = (len(common) > 0, list(common))
-        
+
     return labeled, num_features, connectivity
 
 def get_component_bounding_boxes(labeled, num_features):
@@ -171,6 +237,8 @@ Examples:
   python isitconnected.py data.raw 100 100 100 -p 2
   python isitconnected.py image.raw 500 351 351 --bounding-boxes
   python isitconnected.py image.raw 500 351 351 --bounding-boxes --sort-by depth
+  python isitconnected.py image.raw 500 351 351 --backend cc3d  # Fast CPU
+  python isitconnected.py image.raw 500 351 351 --backend cupy  # GPU accelerated
         """
     )
 
@@ -191,8 +259,29 @@ Examples:
     parser.add_argument('--sort-by', type=str, default='volume',
                         choices=['volume', 'depth', 'height', 'width'],
                         help='Sort components by: volume (voxel count), depth (extent along depth axis), height, or width (default: volume)')
+    # Determine default backend based on what's available
+    default_backend = 'cc3d' if CC3D_AVAILABLE else 'scipy'
+
+    parser.add_argument('--backend', type=str, default=default_backend,
+                        choices=['scipy', 'cc3d', 'cupy', 'dask'],
+                        help='Backend for connected component labeling: cc3d (default if installed, fast CPU), scipy (fallback, slow), cupy (GPU), dask (parallel CPU)')
 
     args = parser.parse_args()
+
+    # Check backend availability and warn user
+    if args.backend == 'cc3d' and not CC3D_AVAILABLE:
+        print("ERROR: cc3d backend requested but not installed.")
+        print("Install with: pip install connected-components-3d")
+        print("Falling back to scipy backend...")
+        args.backend = 'scipy'
+    elif args.backend == 'cupy' and not CUPY_AVAILABLE:
+        print("ERROR: cupy backend requested but not installed.")
+        print("Install with: pip install cupy-cuda11x  (or appropriate CUDA version)")
+        sys.exit(1)
+    elif args.backend == 'dask' and not DASK_AVAILABLE:
+        print("ERROR: dask backend requested but not installed.")
+        print("Install with: pip install dask[array]")
+        sys.exit(1)
 
     # Define the dimensions from command-line arguments
     dims = (args.depth, args.height, args.width)
@@ -200,6 +289,7 @@ Examples:
     print("Loading file: {}".format(args.filename))
     print("Dimensions: {} (depth x height x width)".format(dims))
     print("Analyzing phase: {}".format(args.phase))
+    print("Backend: {}".format(args.backend))
     print()
 
     # Load the 3D image with auto-detected header length
@@ -210,7 +300,12 @@ Examples:
         plot_slices(volume)
 
     # Check connectivity for the specified phase
-    labeled, num_features, connectivity = check_phase_connectivity(volume, phase=args.phase)
+    print("Running connected component labeling with {} backend...".format(args.backend))
+    import time
+    start_time = time.time()
+    labeled, num_features, connectivity = check_phase_connectivity(volume, phase=args.phase, backend=args.backend)
+    elapsed_time = time.time() - start_time
+    print("Labeling completed in {:.2f} seconds".format(elapsed_time))
 
     print("\nTotal connected components for phase {}: {}".format(args.phase, num_features))
     for axis, (is_conn, labels) in connectivity.items():

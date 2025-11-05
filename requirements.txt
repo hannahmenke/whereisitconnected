@@ -1,3 +1,15 @@
+# Required dependencies
 numpy>=1.20.0
 scipy>=1.7.0
 matplotlib>=3.3.0
+
+# Recommended for best performance (used as default backend)
+connected-components-3d>=3.10.0
+
+# Additional optional dependencies for acceleration (install as needed)
+
+# For GPU acceleration (requires NVIDIA GPU with CUDA):
+# cupy-cuda11x>=11.0.0  # Replace with appropriate CUDA version (11x, 12x, etc.)
+
+# For parallel CPU processing of large volumes:
+# dask[array]>=2021.0.0
